@@ -55,14 +55,18 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "installdriver"; Description: "Install virtual microphone driver now (requires test signing enabled)"; GroupDescription: "Driver:"
 
 [Run]
+; Delete stale ring.dat before driver install so indices start clean
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""Remove-Item 'C:\ProgramData\PhoneMike\ring.dat' -Force -ErrorAction SilentlyContinue"""; StatusMsg: "Cleaning up previous session data..."; Tasks: installdriver; Flags: runhidden waituntilterminated
 ; Post-install: optionally run driver install script
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install.ps1"""; WorkingDir: "{app}\driver"; StatusMsg: "Installing virtual microphone driver..."; Tasks: installdriver; Flags: runhidden waituntilterminated
 ; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch PhoneMike Client"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
+; Delete ring.dat on uninstall
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""Remove-Item 'C:\ProgramData\PhoneMike\ring.dat' -Force -ErrorAction SilentlyContinue"""; RunOnceId: "DeleteRingDat"; Flags: runhidden waituntilterminated
 ; Remove driver on uninstall
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""& {{ $DevCon = 'C:\Program Files (x86)\Windows Kits\10\Tools\10.0.26100.0\x64\devcon.exe'; if (Test-Path $DevCon) {{ & $DevCon remove ROOT\PhoneMikeDriver 2>&1 | Out-Null }}; Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {{ $_.InstanceId -like '*PhoneMikeDriver*' }} | ForEach-Object {{ pnputil /remove-device $_.InstanceId /subtree 2>&1 | Out-Null }}; sc.exe stop PhoneMikeDriver 2>&1 | Out-Null; sc.exe delete PhoneMikeDriver 2>&1 | Out-Null }}"""; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""& {{ $DevCon = 'C:\Program Files (x86)\Windows Kits\10\Tools\10.0.26100.0\x64\devcon.exe'; if (Test-Path $DevCon) {{ & $DevCon remove ROOT\PhoneMikeDriver 2>&1 | Out-Null }}; Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {{ $_.InstanceId -like '*PhoneMikeDriver*' }} | ForEach-Object {{ pnputil /remove-device $_.InstanceId /subtree 2>&1 | Out-Null }}; sc.exe stop PhoneMikeDriver 2>&1 | Out-Null; sc.exe delete PhoneMikeDriver 2>&1 | Out-Null }}"""; RunOnceId: "RemoveDriver"; Flags: runhidden waituntilterminated
 
 [Code]
 const
