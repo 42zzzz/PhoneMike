@@ -1,8 +1,9 @@
 # PhoneMike
 
-Turn your Android phone into a Windows microphone. Works with Discord, OBS, Teams, and anything else that uses a mic.
+Turn your Android phone into a Windows microphone. 
+Works with Discord, OBS, Teams, and anything else that uses a mic.
 
-## [⬇ Download PhoneMike](https://github.com/42zzzz/PhoneMike/releases/latest)
+## [Download](https://github.com/42zzzz/PhoneMike/releases/latest)
 
 | File | What to download |
 |------|-----------------|
@@ -11,9 +12,9 @@ Turn your Android phone into a Windows microphone. Works with Discord, OBS, Team
 
 ---
 
-## Setup (5 minutes)
+## Setup
 
-### Step 1 — One-time Windows setting
+### Step 1 - One-time Windows setting
 
 PhoneMike uses a custom audio driver that requires test signing to be enabled. Open **Command Prompt as Administrator** and run:
 
@@ -23,15 +24,15 @@ bcdedit /set testsigning on
 
 Then **restart your PC**.
 
-> You only need to do this once. A small "Test Mode" watermark will appear on your desktop — this is normal.
+> Done only once. A small "Test Mode" watermark might appear on your desktop; this is normal.
 
-### Step 2 — Install on your PC
+### Step 2 - Install on your PC
 
 Run `PhoneMike-v1.0.0-windows-setup.exe`. When asked, tick **"Install virtual microphone driver"**.
 
 After install, **PhoneMike Virtual Microphone** will appear as a recording device in Windows Sound Settings.
 
-### Step 3 — Install on your phone
+### Step 3 - Phone Installation
 
 Your phone needs **USB debugging** enabled:
 1. Go to **Settings → About phone**
@@ -40,7 +41,7 @@ Your phone needs **USB debugging** enabled:
 
 Then install `PhoneMike.apk` by copying it to your phone and opening it (you may need to allow installs from unknown sources).
 
-### Step 4 — Use it
+### Step 4 - Usage
 
 1. Plug your phone into your PC with a USB cable
 2. Run this command once (every time you plug in):
