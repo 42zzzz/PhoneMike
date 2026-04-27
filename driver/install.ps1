@@ -170,12 +170,20 @@ public class MoveFileHelper {
 # 4. Sign the .sys + generate catalog
 # ---------------------------------------------------------------------------
 Write-Host '[4] Signing PhoneMikeDriver.sys...'
-& $SignTool sign /fd sha256 /a /ph /f $Pfx /p $PfxPass $SysDebug
+# Copy to temp dir for signing (signtool IPersistFile::Save fails on protected paths)
+$TempDir = Join-Path $env:TEMP 'PhoneMikeSign'
+New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+$TempSys = Join-Path $TempDir 'PhoneMikeDriver.sys'
+Copy-Item $SysDebug $TempSys -Force
+
+& $SignTool sign /fd sha256 /a /ph /f $Pfx /p $PfxPass $TempSys
 if ($LASTEXITCODE -ne 0) { Write-Error 'signtool failed on .sys' }
 
-# Stage .sys next to .inf (pnputil resolves SourceDisksFiles relative to .inf)
-Write-Host '    Staging .sys next to .inf...'
-Copy-Item $SysDebug (Join-Path $DriverDir 'PhoneMikeDriver.sys') -Force
+# Stage signed .sys next to .inf (pnputil resolves SourceDisksFiles relative to .inf)
+Write-Host '    Staging signed .sys next to .inf...'
+$StagedSys = Join-Path $DriverDir 'PhoneMikeDriver.sys'
+Copy-Item $TempSys $StagedSys -Force
+$SysDebug = $StagedSys
 
 Write-Host '    Generating catalog (makecat)...'
 $Cdf = Join-Path $DriverDir 'PhoneMike.cdf'
