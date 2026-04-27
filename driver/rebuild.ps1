@@ -1,5 +1,5 @@
 ﻿$msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
-$proj    = Join-Path $PSScriptRoot 'PhoneMike_driver.vcxproj'
+$proj    = Join-Path $PSScriptRoot 'phonemic_driver.vcxproj'
 
 # Step 1: compile only
 Write-Host "=== Compiling ==="
