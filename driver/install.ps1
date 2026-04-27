@@ -6,7 +6,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $DriverDir  = $PSScriptRoot
-$SysDebug   = Join-Path $DriverDir 'x64\Debug\PhoneMikeDriver.sys'
+# Support both repo layout (x64\Debug\) and installer layout (flat next to install.ps1)
+$SysDebug = Join-Path $DriverDir 'x64\Debug\PhoneMikeDriver.sys'
+if (-not (Test-Path $SysDebug)) {
+    $SysDebug = Join-Path $DriverDir 'PhoneMikeDriver.sys'
+}
 $Inf        = Join-Path $DriverDir 'phonemic.inf'
 $Pfx        = Join-Path $DriverDir 'PhoneMike_test.pfx'
 $PfxPass    = 'PhoneMiketest'
