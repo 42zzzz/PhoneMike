@@ -1,0 +1,25 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.hprof
+app/build/
+pc-client/target/
+pc-client/target2/
+
+# Driver build artifacts
+driver/x64/
+driver/PhoneMicDriver.sys
+driver/phonemic.cat
+driver/phonemic.cdf
+driver/phonemic_test.pfx
+driver/winusb-aoa/phonemic_aoa.cat
+
+# Installer output
+installer/Output/

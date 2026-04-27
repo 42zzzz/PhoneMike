@@ -1,0 +1,19 @@
+[package]
+name = "phonemike-client"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "phonemike-client"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+audiopus = "0.2"
+byteorder = "1"
+clap = { version = "4", features = ["derive"] }
+eframe = "0.34"
+windows-sys = { version = "0.52.0", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Console"] }
+
+[profile.release]
+opt-level = 3

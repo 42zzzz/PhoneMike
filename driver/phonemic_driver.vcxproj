@@ -1,0 +1,107 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PhoneMike virtual microphone WDM/PortCls kernel driver.
+  Requires: WDK 10.0.26100.0 + VS 18 (2022) with WDK extension.
+  Build: .\build.ps1
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <DriverTargetPlatform>Universal</DriverTargetPlatform>
+    <DriverType>WDM</DriverType>
+    <WDKContentRoot Condition="'$(WDKContentRoot)'==''">C:\Program Files (x86)\Windows Kits\10\</WDKContentRoot>
+    <VisualStudioVersion>17.0</VisualStudioVersion>
+    <WDKBuildFolder>10.0.26100.0</WDKBuildFolder>
+  </PropertyGroup>
+
+  <!-- WDK default props â€” must precede Microsoft.Cpp.Default.props -->
+  <Import Project="$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.Default.props"
+          Condition="Exists('$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.Default.props')" />
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Driver</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <!-- WDM kernel-mode props -->
+  <Import Project="$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.KernelMode.Wdm.props"
+          Condition="Exists('$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.KernelMode.Wdm.props')" />
+
+  <!-- Platform-specific props normally injected by VS ImportAfter â€” required for command-line MSBuild -->
+  <Import Project="$(WDKContentRoot)build\$(WDKBuildFolder)\x64\ImportAfter\WDK.x64.WindowsKernelModeDriver.Platform.props"
+          Condition="Exists('$(WDKContentRoot)build\$(WDKBuildFolder)\x64\ImportAfter\WDK.x64.WindowsKernelModeDriver.Platform.props')" />
+
+  <!-- Common WDK props -->
+  <Import Project="$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.common.props"
+          Condition="Exists('$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.common.props')" />
+
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets" />
+
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\obj\</IntDir>
+    <TargetName>PhoneMikeDriver</TargetName>
+    <TargetExt>.sys</TargetExt>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(WDKContentRoot)Include\$(WDKBuildFolder)\km;$(WDKContentRoot)Include\$(WDKBuildFolder)\shared;$(WDKContentRoot)Include\$(WDKBuildFolder)\um;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WINNT=1;_WIN64;_AMD64_;AMD64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4201;4214;4100;4200;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <WarningLevel>Level4</WarningLevel>
+      <ExceptionHandling>false</ExceptionHandling>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>portcls.lib;ks.lib;ksguid.lib;stdunk.lib;wdmguid.lib;ntoskrnl.lib;hal.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(WDKContentRoot)Lib\$(WDKBuildFolder)\km\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Native</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="src\guids.cpp" />
+    <ClCompile Include="src\driver_entry.cpp" />
+    <ClCompile Include="src\miniport.cpp" />
+    <ClCompile Include="src\stream.cpp" />
+    <ClCompile Include="src\dma_channel.cpp" />
+    <ClCompile Include="src\shared_mem.cpp" />
+    <ClCompile Include="src\topology.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="src\driver.h" />
+    <ClInclude Include="src\shared_mem.h" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PhoneMike.inf" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.Common.targets"
+          Condition="Exists('$(WDKContentRoot)build\$(WDKBuildFolder)\WindowsDriver.Common.targets')" />
+
+</Project>

@@ -1,0 +1,91 @@
+﻿; PhoneMike.inf â€” INF for PhoneMike virtual microphone driver
+; Installs PhoneMikeDriver.sys as a WDM audio capture device.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = MEDIA
+ClassGUID   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+DriverVer   = 12/01/2025,1.0.0.1
+CatalogFile = PhoneMike.cat
+PnpLockdown = 0
+
+[DestinationDirs]
+DefaultDestDir = 12    ; \Windows\System32\drivers
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+PhoneMikeDriver.sys = 1,,
+
+; =====================================================================
+; Manufacturer / Models
+; =====================================================================
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceDescription% = PhoneMike_Device, ROOT\PhoneMikeDriver
+
+; =====================================================================
+; Device install section
+; =====================================================================
+[PhoneMike_Device.NTamd64]
+Include     = ks.inf, wdmaudio.inf
+Needs       = KS.Registration, WDMAUDIO.Registration
+CopyFiles   = PhoneMike_CopyFiles
+AddReg      = PhoneMike_AddReg
+
+[PhoneMike_Device.NTamd64.Interfaces]
+AddInterface = %KSCATEGORY_AUDIO%,    GLOBAL, PhoneMike_Interface
+AddInterface = %KSCATEGORY_CAPTURE%,  GLOBAL, PhoneMike_Interface
+AddInterface = %KSCATEGORY_REALTIME%, GLOBAL, PhoneMike_Interface
+
+[PhoneMike_Interface]
+AddReg = PhoneMike_Interface_AddReg
+
+[PhoneMike_Interface_AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%MicFriendlyName%
+
+[PhoneMike_Device.NTamd64.Services]
+AddService = PhoneMikeDriver, 0x00000002, PhoneMike_ServiceInstall
+
+[PhoneMike_ServiceInstall]
+DisplayName    = %ServiceDescription%
+ServiceType    = 1     ; SERVICE_KERNEL_DRIVER
+StartType      = 3     ; SERVICE_DEMAND_START
+ErrorControl   = 1     ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\PhoneMikeDriver.sys
+
+[PhoneMike_CopyFiles]
+PhoneMikeDriver.sys
+
+[PhoneMike_AddReg]
+HKR,,AssociatedFilters,,"wdmaud,swmidi,redbook"
+HKR,,Driver,,PhoneMikeDriver.sys
+HKR,,NTMPDriver,,PhoneMikeDriver.sys
+
+HKR,Drivers,SubClasses,,"wave,topology"
+HKR,Drivers\wave\wdmaud.drv,,0x00010000,"wdmaud.drv"
+HKR,Drivers\wave\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\wave\wdmaud.drv,Description,,%DeviceDescription%
+HKR,Drivers\topology\wdmaud.drv,,0x00010000,"wdmaud.drv"
+HKR,Drivers\topology\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\topology\wdmaud.drv,Description,,%DeviceDescription%
+
+; =====================================================================
+; Strings
+; =====================================================================
+[Strings]
+ManufacturerName    = "PhoneMike"
+DeviceDescription   = "PhoneMike Virtual Microphone"
+MicFriendlyName     = "PhoneMike Virtual Microphone"
+DiskName            = "PhoneMike Driver Disk"
+ServiceDescription  = "PhoneMike Virtual Microphone Driver"
+KSCATEGORY_AUDIO    = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_CAPTURE  = "{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_RENDER   = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+Proxy.CLSID         = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
