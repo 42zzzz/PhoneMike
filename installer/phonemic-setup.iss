@@ -1,4 +1,4 @@
-﻿; PhoneMike Windows Installer â€” InnoSetup 6
+; PhoneMike Windows Installer â€” InnoSetup 6
 ; Installs PC client + kernel driver files
 
 #define MyAppName "PhoneMike"
@@ -58,7 +58,7 @@ Name: "installdriver"; Description: "Install virtual microphone driver now (requ
 ; Delete stale ring.dat before driver install so indices start clean
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""Remove-Item 'C:\ProgramData\PhoneMike\ring.dat' -Force -ErrorAction SilentlyContinue"""; StatusMsg: "Cleaning up previous session data..."; Tasks: installdriver; Flags: runhidden waituntilterminated
 ; Post-install: optionally run driver install script
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install.ps1"""; WorkingDir: "{app}\driver"; StatusMsg: "Installing virtual microphone driver..."; Tasks: installdriver; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install.ps1"""; WorkingDir: "{app}\driver"; StatusMsg: "Installing virtual microphone driver..."; Tasks: installdriver; Flags: waituntilterminated
 ; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch PhoneMike Client"; Flags: nowait postinstall skipifsilent
 

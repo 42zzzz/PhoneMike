@@ -235,12 +235,17 @@ if ($LASTEXITCODE -notin @(0, 259, 3010)) { Write-Error "pnputil failed: $LASTEX
 # ---------------------------------------------------------------------------
 # 6. Create device node (we removed all nodes in step 3, so always create)
 # ---------------------------------------------------------------------------
-if (Test-Path $DevCon) {
-    Write-Host '[6] Creating device node (devcon)...'
-    & $DevCon install $Inf 'ROOT\PhoneMikeDriver'
-    if ($LASTEXITCODE -notin @(0, 1)) { Write-Warning "devcon install returned $LASTEXITCODE" }
-} else {
-    Write-Warning "devcon not found at $DevCon - use Device Manager -> Add Legacy Hardware to create device node manually."
+# Try pnputil first (works non-interactively when already elevated)
+Write-Host '[6] Creating device node...'
+pnputil /add-driver $Inf /install
+if ($LASTEXITCODE -notin @(0, 3010)) {
+    Write-Host "    pnputil exit $LASTEXITCODE - trying devcon..."
+    if (Test-Path $DevCon) {
+        & $DevCon install $Inf 'ROOT\PhoneMikeDriver'
+        if ($LASTEXITCODE -notin @(0, 1)) { Write-Warning "devcon install returned $LASTEXITCODE" }
+    } else {
+        Write-Warning "devcon not found at $DevCon - install may be incomplete"
+    }
 }
 
 # ---------------------------------------------------------------------------
