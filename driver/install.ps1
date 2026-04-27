@@ -1,4 +1,4 @@
-﻿#Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 # install.ps1 - Sign and install PhoneMikeDriver on this machine (test signing)
 # Run once from an elevated PowerShell in the driver\ folder.
 
@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 $DriverDir  = $PSScriptRoot
 $SysDebug   = Join-Path $DriverDir 'x64\Debug\PhoneMikeDriver.sys'
-$Inf        = Join-Path $DriverDir 'PhoneMike.inf'
+$Inf        = Join-Path $DriverDir 'phonemic.inf'
 $Pfx        = Join-Path $DriverDir 'PhoneMike_test.pfx'
 $PfxPass    = 'PhoneMiketest'
 $WdkBin     = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
@@ -113,6 +113,23 @@ if ($existingSvc) {
     Start-Sleep -Milliseconds 500
 }
 
+# 3b-extra. Tear down legacy service name (pre-rename: PhoneMicDriver)
+$legacySvc = Get-Service -Name 'PhoneMicDriver' -ErrorAction SilentlyContinue
+if ($legacySvc) {
+    Write-Host '    Stopping legacy PhoneMicDriver service...'
+    sc.exe stop PhoneMicDriver 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+    sc.exe delete PhoneMicDriver 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+}
+
+# 3b-extra2. Delete stale ring.dat so ReadIndex/WriteIndex start clean
+$ringDat = 'C:\ProgramData\PhoneMike\ring.dat'
+if (Test-Path $ringDat) {
+    Write-Host '    Removing stale ring.dat...'
+    Remove-Item $ringDat -Force -ErrorAction SilentlyContinue
+}
+
 # 3c. Wait for file to unlock, then verify
 $Sys32File = "$env:SystemRoot\System32\drivers\PhoneMikeDriver.sys"
 if (Test-Path $Sys32File) {
@@ -168,7 +185,7 @@ EncodingType=0x00010001
 CATATTR1=0x10010001:OSAttr:2:6.0
 
 [CatalogFiles]
-<HASH>PhoneMike.inf=$Inf
+<HASH>phonemic.inf=$Inf
 <HASH>PhoneMikeDriver.sys=$(Join-Path $DriverDir 'PhoneMikeDriver.sys')
 "@ | Set-Content $Cdf -Encoding ASCII
 
@@ -186,7 +203,7 @@ Write-Host '[5a] Removing old PhoneMike driver from DriverStore...'
 $oemList = pnputil /enum-drivers 2>&1
 $lines = $oemList -split "`n"
 for ($i = 0; $i -lt $lines.Count; $i++) {
-    if ($lines[$i] -match 'PhoneMike\.inf') {
+    if ($lines[$i] -match 'phonemic\.inf') {
         for ($j = $i; $j -ge [Math]::Max(0, $i - 5); $j--) {
             if ($lines[$j] -match '(oem\d+\.inf)') {
                 $oemInf = $Matches[1]
@@ -282,5 +299,5 @@ if ($needReboot) {
     Write-Host '    After reboot, re-run this script to complete installation.'
 } else {
     Write-Host 'Done. Check Sound Settings -> Recording for "PhoneMike Virtual Microphone".'
-    Write-Host 'Then run:  .\pc-client\target\debug\PhoneMike.exe --driver'
+    Write-Host 'Then run:  phonemike-client.exe --driver'
 }
