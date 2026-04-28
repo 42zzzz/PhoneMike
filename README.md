@@ -63,4 +63,4 @@ Then install `PhoneMike.apk` by copying it to your phone and opening it (you may
 
 ---
 
-## License(LICENSE)
+## [License](https://github.com/42zzzz/PhoneMike/blob/main/LICENSE)
