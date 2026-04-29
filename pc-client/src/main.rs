@@ -6,6 +6,7 @@ mod audio_thread;
 mod shared_mem;
 mod state;
 mod tcp;
+mod tray;
 mod update;
 mod wav;
 
@@ -61,6 +62,9 @@ fn run_gui() {
 
     update::spawn_update_check(Arc::clone(&state));
 
+    // Build tray icon before run_native (must be on main thread)
+    let app_tray = tray::build_tray().ok();
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("PhoneMike")
@@ -73,7 +77,7 @@ fn run_gui() {
         "PhoneMike",
         native_options,
         Box::new(move |cc| {
-            Ok(Box::new(app::PhoneMikeApp::new(cc, Arc::clone(&state), cmd_tx)))
+            Ok(Box::new(app::PhoneMikeApp::new(cc, Arc::clone(&state), cmd_tx, app_tray)))
         }),
     )
     .expect("eframe failed to start");

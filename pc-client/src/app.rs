@@ -3,11 +3,16 @@ use std::sync::mpsc::Sender;
 use eframe::egui::{self, Color32, Panel, RichText, ScrollArea, Shape, Stroke, StrokeKind, Vec2};
 
 use crate::state::{AppStateHandle, Command, ConnectionStatus};
+use crate::tray::AppTray;
 use crate::update::CURRENT_VERSION;
 
 pub struct PhoneMikeApp {
     state: AppStateHandle,
     cmd_tx: Sender<Command>,
+
+    // Tray icon (kept alive here)
+    tray: Option<AppTray>,
+    window_visible: bool,
 
     // UI-local state
     gain: f32,
@@ -37,10 +42,13 @@ impl PhoneMikeApp {
         _cc: &eframe::CreationContext<'_>,
         state: AppStateHandle,
         cmd_tx: Sender<Command>,
+        tray: Option<AppTray>,
     ) -> Self {
         PhoneMikeApp {
             state,
             cmd_tx,
+            tray,
+            window_visible: true,
             gain: 1.0,
             noise_gate: 0.0,
             lowpass_hz: 24000.0, // default: effectively bypass
@@ -403,8 +411,34 @@ impl eframe::App for PhoneMikeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.snapshot_state();
 
+        // Poll tray events
+        if let Some(ref tray) = self.tray {
+            let (toggle, quit) = crate::tray::poll_tray(tray);
+            if quit {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            if toggle {
+                self.window_visible = !self.window_visible;
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visible));
+            }
+        }
+
+        // Intercept window close → hide to tray instead of quitting
+        if self.tray.is_some() {
+            let close_requested = ui.ctx().input(|i| i.viewport().close_requested());
+            if close_requested {
+                self.window_visible = false;
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+        }
+
+        // Keep repainting while active or when tray is present (to catch tray events)
         if self.cached_status.is_active() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
+        } else if self.tray.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
         }
 
         Panel::top("top_bar").show_inside(ui, |ui| {

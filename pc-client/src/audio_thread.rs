@@ -128,6 +128,7 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
     }
 
     loop {
+        // Wait for Start command
         let cmd = match cmd_rx.recv() {
             Ok(c) => c,
             Err(_) => return,
@@ -140,20 +141,45 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
             _ => continue,
         };
 
-        if let Err(e) = stream_session(
-            &cmd_rx,
-            Arc::clone(&state),
-            use_driver,
-            initial_wav_path,
-            initial_gain,
-            initial_gate,
-            initial_lowpass,
-        ) {
-            let msg = format!("Session error: {e:#}");
-            if let Ok(mut st) = state.lock() {
-                st.push_log(msg.clone());
-                st.status = ConnectionStatus::Error(msg);
+        // Retry loop: reconnect automatically on disconnect or error
+        loop {
+            match stream_session(
+                &cmd_rx,
+                Arc::clone(&state),
+                use_driver,
+                initial_wav_path.clone(),
+                initial_gain,
+                initial_gate,
+                initial_lowpass,
+            ) {
+                Ok(stopped) => {
+                    // stopped=true means user sent Stop; break to outer loop
+                    if stopped {
+                        break;
+                    }
+                    // Phone disconnected — log and retry
+                    log(&state, "[audio] Disconnected. Reconnecting...");
+                }
+                Err(e) => {
+                    let msg = format!("Session error: {e:#}");
+                    log(&state, &msg);
+                }
             }
+
+            // Check if Stop arrived while we were about to retry
+            match cmd_rx.try_recv() {
+                Ok(Command::Stop) => {
+                    if let Ok(mut st) = state.lock() {
+                        st.status = ConnectionStatus::Disconnected;
+                    }
+                    break;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                _ => {}
+            }
+
+            // Brief pause before retrying
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
 }
@@ -168,6 +194,7 @@ fn read_exact(source: &TcpTransport, buf: &mut [u8]) -> Result<()> {
     Ok(())
 }
 
+/// Returns Ok(true) if user stopped, Ok(false) if phone disconnected/error (caller should retry).
 fn stream_session(
     cmd_rx: &Receiver<Command>,
     state: AppStateHandle,
@@ -176,16 +203,18 @@ fn stream_session(
     initial_gain: f32,
     initial_gate: f32,
     initial_lowpass: f32,
-) -> Result<()> {
+) -> Result<bool> {
     {
         let mut st = state.lock().unwrap();
         st.status = ConnectionStatus::Connecting;
         st.push_log("Connecting via ADB/TCP...".to_string());
     }
 
-    log(&state, "[audio] Setting up ADB forward...");
-    let port = TcpTransport::setup_forward(18501).context("ADB forward failed")?;
-    log(&state, "[audio] Waiting for phone app...");
+    // ADB forward: best-effort, log error but don't abort (phone may not be connected yet)
+    match TcpTransport::setup_forward(18501) {
+        Ok(_) => log(&state, "[audio] ADB forward OK. Waiting for phone app..."),
+        Err(e) => log(&state, format!("[audio] ADB forward failed ({e:#}). Will retry...")),
+    }
 
     let mut attempt = 0u32;
     let source = loop {
@@ -195,20 +224,34 @@ fn stream_session(
                 if let Ok(mut st) = state.lock() {
                     st.status = ConnectionStatus::Disconnected;
                 }
-                return Ok(());
+                return Ok(true);
             }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => return Ok(()),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => return Ok(true),
             _ => {}
         }
 
-        match TcpTransport::try_connect(port)? {
-            Some(t) => break t,
-            None => {
+        // Re-attempt ADB forward periodically (phone may have just connected)
+        if attempt > 0 && attempt % 20 == 0 {
+            if let Err(e) = TcpTransport::setup_forward(18501) {
+                log(&state, format!("[audio] ADB re-forward failed: {e:#}"));
+            }
+        }
+
+        match TcpTransport::try_connect(18501) {
+            Ok(Some(t)) => break t,
+            Ok(None) => {
                 attempt += 1;
                 if attempt == 1 || attempt % 10 == 0 {
                     log(&state, format!(
-                        "[audio] Phone not ready, retrying... (attempt {})", attempt
+                        "[audio] Waiting for phone... (attempt {})", attempt
                     ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(e) => {
+                attempt += 1;
+                if attempt % 10 == 0 {
+                    log(&state, format!("[audio] Connect error: {e:#}"));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
@@ -296,6 +339,7 @@ fn stream_session(
     let mut gate_hold_until = Instant::now();
     let mut gate_open = true;
     let mut lpf = LowpassFilter::new(initial_lowpass, header.sample_rate, header.channels);
+    let mut user_stopped = false;
 
     log(&state, format!(
         "[audio] Streaming... (gate={:.3} lpf={:.0}Hz)",
@@ -306,7 +350,7 @@ fn stream_session(
         // Drain commands
         loop {
             match cmd_rx.try_recv() {
-                Ok(Command::Stop) => { log(&state, "[audio] Stop."); break 'read_loop; }
+                Ok(Command::Stop) => { log(&state, "[audio] Stop."); user_stopped = true; break 'read_loop; }
                 Ok(Command::SetGain(g)) => { gain = g; }
                 Ok(Command::SetNoiseGate(t)) => {
                     gate_threshold = t;
@@ -446,8 +490,10 @@ fn stream_session(
 
     if let Some(w) = wav { let _ = w.finalize(); log(&state, "[audio] WAV finalized."); }
     if let Ok(mut st) = state.lock() {
-        st.status = ConnectionStatus::Disconnected;
+        if user_stopped {
+            st.status = ConnectionStatus::Disconnected;
+        }
         st.push_log("[audio] Session ended.".to_string());
     }
-    Ok(())
+    Ok(user_stopped)
 }

@@ -13,6 +13,8 @@ audiopus = "0.2"
 byteorder = "1"
 clap = { version = "4", features = ["derive"] }
 eframe = "0.34"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tray-icon = { version = "0.22", features = ["common-controls-v6"] }
 windows-sys = { version = "0.52.0", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Console"] }
 
 [profile.release]

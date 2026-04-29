@@ -4,6 +4,11 @@ use std::net::TcpStream;
 use std::process::Command;
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const DEFAULT_PORT: u16 = 18501;
 
 pub struct TcpTransport {
@@ -17,8 +22,11 @@ impl TcpTransport {
         let adb = find_adb();
         eprintln!("[tcp] Running: {} forward tcp:{} tcp:{}", adb, port, port);
 
-        let output = Command::new(&adb)
-            .args(["forward", &format!("tcp:{}", port), &format!("tcp:{}", port)])
+        let mut cmd = Command::new(&adb);
+        cmd.args(["forward", &format!("tcp:{}", port), &format!("tcp:{}", port)]);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
             .output()
             .with_context(|| format!("Failed to run '{}'. Is ADB installed and in PATH?", adb))?;
 
@@ -89,7 +97,11 @@ impl TcpTransport {
 /// Find adb executable — check PATH first, then common SDK locations.
 fn find_adb() -> String {
     // Try PATH first
-    if Command::new("adb").arg("version").output().is_ok() {
+    let mut probe = Command::new("adb");
+    probe.arg("version");
+    #[cfg(target_os = "windows")]
+    probe.creation_flags(CREATE_NO_WINDOW);
+    if probe.output().is_ok() {
         return "adb".to_string();
     }
 
