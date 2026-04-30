@@ -230,22 +230,17 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
 Write-Host '[5b] Installing driver package (pnputil)...'
 pnputil /add-driver $Inf /install
 # pnputil returns 0 (success) or 3010 (success, reboot needed)
-if ($LASTEXITCODE -notin @(0, 259, 3010)) { Write-Error "pnputil failed: $LASTEXITCODE" }
+if ($LASTEXITCODE -notin @(0, 259, 1072, 3010)) { Write-Error "pnputil failed: $LASTEXITCODE" }
 
 # ---------------------------------------------------------------------------
-# 6. Create device node (we removed all nodes in step 3, so always create)
+# 6. Create device node
 # ---------------------------------------------------------------------------
-# Try pnputil first (works non-interactively when already elevated)
 Write-Host '[6] Creating device node...'
-pnputil /add-driver $Inf /install
-if ($LASTEXITCODE -notin @(0, 3010)) {
-    Write-Host "    pnputil exit $LASTEXITCODE - trying devcon..."
-    if (Test-Path $DevCon) {
-        & $DevCon install $Inf 'ROOT\PhoneMikeDriver'
-        if ($LASTEXITCODE -notin @(0, 1)) { Write-Warning "devcon install returned $LASTEXITCODE" }
-    } else {
-        Write-Warning "devcon not found at $DevCon - install may be incomplete"
-    }
+if (Test-Path $DevCon) {
+    & $DevCon install $Inf 'ROOT\PhoneMikeDriver'
+    if ($LASTEXITCODE -notin @(0, 1)) { Write-Warning "devcon install returned $LASTEXITCODE" }
+} else {
+    Write-Warning "devcon not found at $DevCon"
 }
 
 # ---------------------------------------------------------------------------
@@ -259,7 +254,7 @@ if ($dev) {
     # Handle multiple devices (shouldn't happen, but clean up if it does)
     $devList = @($dev)
     if ($devList.Count -gt 1) {
-        Write-Host "    WARNING: Found $($devList.Count) device nodes â€” removing extras..."
+        Write-Host "    WARNING: Found $($devList.Count) device nodes - removing extras..."
         # Keep first, remove rest
         for ($i = 1; $i -lt $devList.Count; $i++) {
             Write-Host "    Removing duplicate: $($devList[$i].InstanceId)"
@@ -296,9 +291,9 @@ Then re-run install.ps1 from this elevated prompt.
 # 8. Verify audio endpoint
 # ---------------------------------------------------------------------------
 Write-Host ''
-Write-Host '[8] Checking audio endpoint...'
-Write-Host "    Open Sound Settings -> Input devices and look for 'PhoneMike Virtual Microphone'."
-Write-Host "    If not listed: Kaspersky blocked PnP load â€” driver did not call AddDevice."
+Write-Host '[8] Checking audio endpoint'
+Write-Host "    Open Sound Settings -> Input devices and look for PhoneMike Virtual Microphone"
+Write-Host "    If not listed: driver did not call AddDevice."
 Write-Host "    Service SCM status:"
 $svcFinal = Get-Service -Name 'PhoneMikeDriver' -ErrorAction SilentlyContinue
 if ($svcFinal) {

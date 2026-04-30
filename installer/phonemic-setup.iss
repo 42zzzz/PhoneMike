@@ -2,7 +2,7 @@
 ; Installs PC client + kernel driver files
 
 #define MyAppName "PhoneMike"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.1.2"
 #define MyAppPublisher "42zzzz"
 #define MyAppURL "https://github.com/42zzzz/PhoneMike"
 #define MyAppExeName "phonemike-client.exe"
@@ -93,7 +93,22 @@ begin
   Result := s;
 end;
 
-// Called before files are copied â€” silently uninstall old version if present
+// Returns True if the PhoneMikeDriver SCM service entry still exists.
+// A service “marked for deletion” remains in SCM until reboot — installing
+// over it causes the new devcon install to silently fail.
+function DriverServicePendingDelete(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // sc.exe query exits 0 if service exists (running or stopped), 1060 if not found.
+  Exec(ExpandConstant('{sys}\sc.exe'), 'query PhoneMikeDriver', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Result := (ResultCode = 0);
+end;
+
+// Called before files are copied — silently uninstall old version if present.
+// If the old driver service is still pending deletion after uninstall, signal
+// InnoSetup to reboot first so the SCM entry is flushed before we reinstall.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   UninstStr: String;
@@ -108,7 +123,7 @@ begin
 
   OldVer := GetExistingVersion();
   if OldVer <> '' then
-    Log('Found existing PhoneMike v' + OldVer + ' â€” removing before upgrade.');
+    Log('Found existing PhoneMike v' + OldVer + ' - removing before upgrade.');
 
   ExePath := RemoveQuotes(UninstStr);
 
@@ -117,5 +132,15 @@ begin
               ewWaitUntilTerminated, ResultCode) then
   begin
     Result := 'Failed to remove existing installation (exit ' + IntToStr(ResultCode) + '). Remove manually and retry.';
+    Exit;
+  end;
+
+  // After uninstall, check if the driver service is still registered in SCM.
+  // If yes, it is “marked for deletion” and a reboot is required before the
+  // new driver can be installed cleanly via devcon.
+  if DriverServicePendingDelete() then
+  begin
+    Log('PhoneMikeDriver service still pending deletion - requesting reboot before install.');
+    NeedsRestart := True;
   end;
 end;
