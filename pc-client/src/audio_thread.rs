@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Instant;
@@ -122,9 +121,9 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
     #[cfg(target_os = "windows")]
     unsafe {
         use windows_sys::Win32::System::Threading::{
-            GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+            GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL,
         };
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
 
     loop {
@@ -331,6 +330,7 @@ fn stream_session(
 
     let mut read_buf = vec![0u8; 4096];
     let mut proc_buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut silence_buf: Vec<u8> = Vec::with_capacity(4096); // pre-alloc, reused for gated frames
     let start = Instant::now();
     let mut total_bytes: u64 = 0;
     let mut last_stats = Instant::now();
@@ -409,12 +409,14 @@ fn stream_session(
 
             proc_buf.clear();
             let pcm_slice = &opus_pcm_buf[..n_samples * header.channels as usize];
-            proc_buf.reserve(pcm_slice.len() * 2);
-            for &s in pcm_slice {
-                let b = s.to_le_bytes();
-                proc_buf.push(b[0]);
-                proc_buf.push(b[1]);
-            }
+            let byte_len = pcm_slice.len() * 2;
+            proc_buf.reserve(byte_len);
+            // SAFETY: i16 and u8 have no alignment/validity constraints that conflict;
+            // we reinterpret the i16 slice as its raw LE bytes in a single memcpy.
+            let src_bytes = unsafe {
+                std::slice::from_raw_parts(pcm_slice.as_ptr() as *const u8, byte_len)
+            };
+            proc_buf.extend_from_slice(src_bytes);
         } else {
             // Raw PCM
             let n = match source.read(&mut read_buf, 100) {
@@ -428,6 +430,7 @@ fn stream_session(
         }
 
         // ── DSP chain ───────────────────────────────────────────────────────
+        let now = Instant::now();
 
         // 1. Gain
         if (gain - 1.0).abs() > 0.001 {
@@ -446,10 +449,9 @@ fn stream_session(
         let rms = compute_rms(&proc_buf);
         let gated_out = if gate_threshold > 0.0 {
             if rms >= gate_threshold {
-                gate_hold_until =
-                    Instant::now() + std::time::Duration::from_millis(GATE_HOLD_MS);
+                gate_hold_until = now + std::time::Duration::from_millis(GATE_HOLD_MS);
                 gate_open = true;
-            } else if Instant::now() >= gate_hold_until {
+            } else if now >= gate_hold_until {
                 gate_open = false;
             }
             !gate_open
@@ -458,20 +460,23 @@ fn stream_session(
             false
         };
 
-        let chunk: Cow<[u8]> = if gated_out {
-            Cow::Owned(vec![0u8; proc_buf.len()])
+        let chunk: &[u8] = if gated_out {
+            if silence_buf.len() < proc_buf.len() {
+                silence_buf.resize(proc_buf.len(), 0u8);
+            }
+            &silence_buf[..proc_buf.len()]
         } else {
-            Cow::Borrowed(&proc_buf)
+            &proc_buf
         };
 
         total_bytes += raw_bytes_consumed as u64;
 
-        if let Some(ref s) = shm { s.write(&chunk); }
-        if let Some(ref mut w) = wav { let _ = w.append(&chunk); }
+        if let Some(ref s) = shm { s.write(chunk); }
+        if let Some(ref mut w) = wav { let _ = w.append(chunk); }
 
         // Stats update ~100ms
-        if last_stats.elapsed().as_millis() >= 100 {
-            last_stats = Instant::now();
+        if now.duration_since(last_stats).as_millis() >= 100 {
+            last_stats = now;
             let (wi, ri) = if let Some(ref s) = shm { s.indices() } else { (0, 0) };
             if let Ok(mut st) = state.lock() {
                 st.stats.bytes_received = total_bytes;

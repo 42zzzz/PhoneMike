@@ -2,7 +2,7 @@
 ; Installs PC client + kernel driver files
 
 #define MyAppName "PhoneMike"
-#define MyAppVersion "1.1.4"
+#define MyAppVersion "1.1.5"
 #define MyAppPublisher "42zzzz"
 #define MyAppURL "https://github.com/42zzzz/PhoneMike"
 #define MyAppExeName "PhoneMike.exe"

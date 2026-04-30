@@ -455,12 +455,15 @@ impl eframe::App for PhoneMikeApp {
             }
         }
 
-        // Keep repainting while active or when tray is present (to catch tray events)
-        if self.cached_status.is_active() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
-        } else if self.tray.is_some() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
-        }
+        // Repaint cadence: fast when visible+active, slow when hidden (tray-only polling)
+        let repaint_ms = if !self.window_visible {
+            500 // hidden to tray — only need to poll tray events
+        } else if self.cached_status.is_active() {
+            60  // streaming + visible — smooth VU meter
+        } else {
+            200 // idle + visible
+        };
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(repaint_ms));
 
         Panel::top("top_bar").show_inside(ui, |ui| {
             ui.add_space(4.0);
