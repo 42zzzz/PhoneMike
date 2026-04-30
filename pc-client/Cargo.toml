@@ -12,6 +12,7 @@ anyhow = "1"
 audiopus = "0.2"
 byteorder = "1"
 clap = { version = "4", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 tray-icon = { version = "0.22" }
 windows-sys = { version = "0.52.0", features = [
     "Win32_Foundation",

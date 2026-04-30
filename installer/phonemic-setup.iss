@@ -24,6 +24,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 LicenseFile=..\LICENSE
+SetupIconFile=..\assets\icons\windows\logo.ico
 WizardStyle=modern
 CloseApplications=yes
 CloseApplicationsFilter=PhoneMike.exe

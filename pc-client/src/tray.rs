@@ -1,3 +1,4 @@
+use image::GenericImageView;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     TrayIcon, TrayIconBuilder, TrayIconEvent,
@@ -93,38 +94,12 @@ pub fn poll_tray(tray: &AppTray, is_active: bool) -> TrayEvents {
     ev
 }
 
+static ICON_32_PNG: &[u8] = include_bytes!("../../assets/icons/windows/logo_32.png");
+
 fn make_icon() -> tray_icon::Icon {
-    const SIZE: u32 = 32;
-    let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-
-    let cx = SIZE as f32 / 2.0;
-    let cy = SIZE as f32 / 2.0;
-    let outer_r = 14.0f32;
-    let inner_r = 8.0f32;
-
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = x as f32 + 0.5 - cx;
-            let dy = y as f32 + 0.5 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            let idx = ((y * SIZE + x) * 4) as usize;
-
-            if dist <= outer_r && dist >= inner_r {
-                rgba[idx]     = 50;
-                rgba[idx + 1] = 200;
-                rgba[idx + 2] = 80;
-                rgba[idx + 3] = 255;
-            } else if dist < inner_r {
-                rgba[idx]     = 30;
-                rgba[idx + 1] = 30;
-                rgba[idx + 2] = 35;
-                rgba[idx + 3] = 255;
-            } else {
-                rgba[idx + 3] = 0;
-            }
-        }
-    }
-
-    tray_icon::Icon::from_rgba(rgba, SIZE, SIZE).expect("icon build")
+    let img = image::load_from_memory(ICON_32_PNG)
+        .expect("tray icon PNG decode")
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    tray_icon::Icon::from_rgba(img.into_raw(), w, h).expect("tray icon build")
 }

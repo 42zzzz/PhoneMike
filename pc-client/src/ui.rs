@@ -66,6 +66,23 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+static ICON_32_PNG: &[u8] = include_bytes!("../../assets/icons/windows/logo_32.png");
+static ICON_16_PNG: &[u8] = include_bytes!("../../assets/icons/windows/logo_16.png");
+
+fn load_app_icon(png: &[u8]) -> HICON {
+    unsafe {
+        let hicon = CreateIconFromResourceEx(
+            png.as_ptr(),
+            png.len() as u32,
+            1,          // fIcon = TRUE
+            0x00030000, // version
+            0, 0,       // use actual size from PNG
+            LR_DEFAULTCOLOR,
+        );
+        if hicon != 0 { hicon } else { LoadIconW(0, IDI_APPLICATION) }
+    }
+}
+
 fn create_main_window(state: AppStateHandle, cmd_tx: Sender<Command>) -> HWND {
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
@@ -78,12 +95,12 @@ fn create_main_window(state: AppStateHandle, cmd_tx: Sender<Command>) -> HWND {
             cbClsExtra:    0,
             cbWndExtra:    0,
             hInstance:     hinstance,
-            hIcon:         LoadIconW(0, IDI_APPLICATION),
+            hIcon:         load_app_icon(ICON_32_PNG),
             hCursor:       LoadCursorW(0, IDC_ARROW),
-            hbrBackground: 6, // COLOR_WINDOW (5) + 1 = white background
+            hbrBackground: 6,
             lpszMenuName:  std::ptr::null(),
             lpszClassName: class_name.as_ptr(),
-            hIconSm:       LoadIconW(0, IDI_APPLICATION),
+            hIconSm:       load_app_icon(ICON_16_PNG),
         };
         RegisterClassExW(&wc);
 
