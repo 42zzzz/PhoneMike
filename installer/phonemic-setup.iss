@@ -2,10 +2,10 @@
 ; Installs PC client + kernel driver files
 
 #define MyAppName "PhoneMike"
-#define MyAppVersion "1.1.2"
+#define MyAppVersion "1.1.3"
 #define MyAppPublisher "42zzzz"
 #define MyAppURL "https://github.com/42zzzz/PhoneMike"
-#define MyAppExeName "phonemike-client.exe"
+#define MyAppExeName "PhoneMike.exe"
 
 [Setup]
 AppId={{B8F3A1D2-7E4C-4A9B-8D6F-1C2E3F4A5B6C}
@@ -26,7 +26,7 @@ PrivilegesRequired=admin
 LicenseFile=..\LICENSE
 WizardStyle=modern
 CloseApplications=yes
-CloseApplicationsFilter=phonemike-client.exe
+CloseApplicationsFilter=PhoneMike.exe
 RestartApplications=no
 
 [Languages]
@@ -34,19 +34,21 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 ; PC Client
-Source: "..\pc-client\target\release\phonemike-client.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\pc-client\target\release\PhoneMike.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Driver files
 Source: "..\driver\x64\Debug\PhoneMikeDriver.sys"; DestDir: "{app}\driver"; Flags: ignoreversion
 Source: "..\driver\phonemic.inf"; DestDir: "{app}\driver"; Flags: ignoreversion
-Source: "..\driver\install.ps1"; DestDir: "{app}\driver"; Flags: ignoreversion
+Source: "..\driver\PhoneMike.cat"; DestDir: "{app}\driver"; Flags: ignoreversion
+Source: "..\driver\install-user.ps1"; DestDir: "{app}\driver"; Flags: ignoreversion
+Source: "devcon.exe"; DestDir: "{app}\driver"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\PhoneMike"; Permissions: everyone-full
 
 [Icons]
 Name: "{group}\PhoneMike Client"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\Install Driver"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install.ps1"""; WorkingDir: "{app}\driver"; IconFilename: "{sys}\shell32.dll"; IconIndex: 77; Comment: "Install/reinstall the PhoneMike virtual microphone driver"
+Name: "{group}\Install Driver"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install-user.ps1"""; WorkingDir: "{app}\driver"; IconFilename: "{sys}\shell32.dll"; IconIndex: 77; Comment: "Install/reinstall the PhoneMike virtual microphone driver"
 Name: "{group}\Uninstall PhoneMike"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\PhoneMike"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
@@ -58,7 +60,7 @@ Name: "installdriver"; Description: "Install virtual microphone driver now (requ
 ; Delete stale ring.dat before driver install so indices start clean
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""Remove-Item 'C:\ProgramData\PhoneMike\ring.dat' -Force -ErrorAction SilentlyContinue"""; StatusMsg: "Cleaning up previous session data..."; Tasks: installdriver; Flags: runhidden waituntilterminated
 ; Post-install: optionally run driver install script
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install.ps1"""; WorkingDir: "{app}\driver"; StatusMsg: "Installing virtual microphone driver..."; Tasks: installdriver; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\driver\install-user.ps1"""; WorkingDir: "{app}\driver"; StatusMsg: "Installing virtual microphone driver..."; Tasks: installdriver; Flags: runhidden waituntilterminated
 ; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch PhoneMike Client"; Flags: nowait postinstall skipifsilent
 

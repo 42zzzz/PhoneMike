@@ -2,6 +2,11 @@ use std::sync::mpsc::Sender;
 
 use eframe::egui::{self, Color32, Panel, RichText, ScrollArea, Shape, Stroke, StrokeKind, Vec2};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 use crate::state::{AppStateHandle, Command, ConnectionStatus};
 use crate::tray::AppTray;
 use crate::update::CURRENT_VERSION;
@@ -116,9 +121,11 @@ impl PhoneMikeApp {
                         "https://github.com/42zzzz/PhoneMike/releases/tag/{tag}"
                     );
                     if ui.link(RichText::new("Download").color(Color32::from_rgb(80, 180, 255))).clicked() {
-                        let _ = std::process::Command::new("cmd")
-                            .args(["/c", "start", "", &url])
-                            .spawn();
+                        let mut cmd = std::process::Command::new("cmd");
+                        cmd.args(["/c", "start", "", &url]);
+                        #[cfg(target_os = "windows")]
+                        cmd.creation_flags(CREATE_NO_WINDOW);
+                        let _ = cmd.spawn();
                     }
                     ui.colored_label(
                         Color32::from_rgb(255, 200, 50),
@@ -413,14 +420,28 @@ impl eframe::App for PhoneMikeApp {
 
         // Poll tray events
         if let Some(ref tray) = self.tray {
-            let (toggle, quit) = crate::tray::poll_tray(tray);
-            if quit {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                return;
+            let ev = crate::tray::poll_tray(tray, self.cached_status.is_active());
+            if ev.quit {
+                std::process::exit(0);
             }
-            if toggle {
+            if ev.toggle {
                 self.window_visible = !self.window_visible;
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visible));
+                if self.window_visible {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+            }
+            if ev.connect {
+                self.send_cmd(Command::Start {
+                    use_driver: self.driver_enabled,
+                    wav_path: if self.wav_recording { Some(self.wav_path.clone()) } else { None },
+                    gain: self.gain,
+                    noise_gate: self.noise_gate,
+                    lowpass_hz: self.lowpass_hz,
+                });
+            }
+            if ev.disconnect {
+                self.send_cmd(Command::Stop);
             }
         }
 

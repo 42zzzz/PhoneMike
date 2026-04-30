@@ -2,7 +2,7 @@
 /// No new crate deps; PowerShell is available on all supported Windows versions.
 use crate::state::AppStateHandle;
 
-pub const CURRENT_VERSION: &str = "v1.1.2";
+pub const CURRENT_VERSION: &str = "v1.1.3";
 
 const RELEASES_URL: &str =
     "https://api.github.com/repos/42zzzz/PhoneMike/releases/latest";
@@ -32,15 +32,15 @@ fn check_for_update() -> Option<String> {
         ver = CURRENT_VERSION,
     );
 
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-WindowStyle", "Hidden",
-            "-NonInteractive",
-            "-Command", &ps_cmd,
-        ])
-        .output()
-        .ok()?;
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", &ps_cmd]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd.output().ok()?;
 
     let tag = String::from_utf8(output.stdout).ok()?;
     let tag = tag.trim().to_string();
