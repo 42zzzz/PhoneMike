@@ -12,8 +12,7 @@ anyhow = "1"
 audiopus = "0.2"
 byteorder = "1"
 clap = { version = "4", features = ["derive"] }
-eframe = "0.34"
-image = { version = "0.25", default-features = false, features = ["png"] }
+eframe = { version = "0.34", default-features = false, features = ["glow", "default_fonts"] }
 tray-icon = { version = "0.22" }
 windows-sys = { version = "0.52.0", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Console"] }
 
