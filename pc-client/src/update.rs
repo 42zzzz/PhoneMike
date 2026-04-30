@@ -2,7 +2,7 @@
 /// No new crate deps; PowerShell is available on all supported Windows versions.
 use crate::state::AppStateHandle;
 
-pub const CURRENT_VERSION: &str = "v1.1.5";
+pub const CURRENT_VERSION: &str = "v1.2";
 
 const RELEASES_URL: &str =
     "https://api.github.com/repos/42zzzz/PhoneMike/releases/latest";
