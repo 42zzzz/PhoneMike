@@ -1,26 +1,24 @@
-// Suppress console window in GUI mode. Headless reattaches via AttachConsole.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-mod app;
 mod audio_thread;
 mod shared_mem;
 mod state;
 mod tcp;
 mod tray;
+mod ui;
 mod update;
 mod wav;
 
 use std::sync::{mpsc, Arc, Mutex};
 
 use clap::Parser;
-use eframe::egui;
 
 use state::{Command, SharedState};
 
 #[derive(Parser, Debug)]
 #[command(about = "PhoneMike PC client \u{2014} receives PCM audio from Android")]
 struct Args {
-    /// Run without GUI (original headless CLI behavior)
+    /// Run without GUI (headless CLI behavior)
     #[arg(long, default_value_t = false)]
     headless: bool,
 
@@ -55,36 +53,19 @@ fn run_gui() {
     let state = Arc::new(Mutex::new(SharedState::new()));
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
 
-    let state_clone = Arc::clone(&state);
+    let state_audio = Arc::clone(&state);
     std::thread::spawn(move || {
-        audio_thread::run_audio_thread(cmd_rx, state_clone);
+        audio_thread::run_audio_thread(cmd_rx, state_audio);
     });
 
     update::spawn_update_check(Arc::clone(&state));
 
-    // Build tray icon before run_native (must be on main thread)
     let app_tray = tray::build_tray().ok();
 
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("PhoneMike")
-            .with_inner_size([900.0, 620.0])
-            .with_min_inner_size([700.0, 450.0]),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "PhoneMike",
-        native_options,
-        Box::new(move |cc| {
-            Ok(Box::new(app::PhoneMikeApp::new(cc, Arc::clone(&state), cmd_tx, app_tray)))
-        }),
-    )
-    .expect("eframe failed to start");
+    ui::run(state, cmd_tx, app_tray);
 }
 
 fn run_headless(args: Args) {
-    // Reattach to parent terminal so eprintln! output is visible
     #[cfg(target_os = "windows")]
     unsafe {
         use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
