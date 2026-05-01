@@ -25,6 +25,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 LicenseFile=..\LICENSE
 SetupIconFile=..\assets\icons\windows\logo.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 WizardStyle=modern
 CloseApplications=yes
 CloseApplicationsFilter=PhoneMike.exe
