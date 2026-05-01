@@ -52,8 +52,10 @@ pub fn run(state: AppStateHandle, cmd_tx: Sender<Command>, tray: Option<AppTray>
         loop {
             let ret = GetMessageW(&mut msg, 0, 0, 0);
             if ret == 0 || ret == -1 { break; }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            if IsDialogMessageW(hwnd, &msg) == 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
 }
@@ -153,7 +155,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 0,
                 to_wide("BUTTON").as_ptr(),
                 to_wide("Start").as_ptr(),
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 10, 44, 100, 28,
                 hwnd, IDC_STARTSTOP as _, hinstance, std::ptr::null(),
             );
@@ -162,7 +164,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 WS_EX_CLIENTEDGE,
                 to_wide("LISTBOX").as_ptr(),
                 std::ptr::null(),
-                WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOINTEGRALHEIGHT | LBS_NOSEL,
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOINTEGRALHEIGHT | LBS_NOSEL,
                 10, 82, 380, 210,
                 hwnd, IDC_LOG as _, hinstance, std::ptr::null(),
             );
