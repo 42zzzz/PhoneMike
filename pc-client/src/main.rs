@@ -44,9 +44,40 @@ fn main() {
 
     if args.headless {
         run_headless(args);
-    } else {
-        run_gui();
+        return;
     }
+
+    // Single-instance guard: named mutex prevents multiple GUI instances.
+    // If already running, bring the existing window to front and exit.
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows_sys::Win32::System::Threading::CreateMutexW;
+
+        let name: Vec<u16> = "PhoneMike_SingleInstance\0".encode_utf16().collect();
+        let hmutex = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
+        if hmutex == 0 || unsafe { windows_sys::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
+            // Another instance is running — find its window and show it
+            unsafe {
+                let class: Vec<u16> = "PhoneMikeWnd\0".encode_utf16().collect();
+                let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                    class.as_ptr(), std::ptr::null(),
+                );
+                if hwnd != 0 {
+                    windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                        hwnd,
+                        windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+                    );
+                    windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+                }
+            }
+            return;
+        }
+        // Leak hmutex — held for process lifetime, released on exit by OS
+        std::mem::forget(hmutex);
+    }
+
+    run_gui();
 }
 
 fn run_gui() {
