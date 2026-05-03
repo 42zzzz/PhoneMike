@@ -8,7 +8,7 @@ Works with Discord, OBS, Teams, and anything else that uses a mic.
 | File | What to download |
 |------|-----------------|
 | [`PhoneMike-v1.2.2-windows-setup.exe`](https://github.com/42zzzz/PhoneMike/releases/download/v1.2.2/PhoneMike-v1.2.2-windows-setup.exe) | Install this on your PC |
-| `PhoneMike.apk` | Install this on your phone |
+| [`PhoneMike.apk`](https://github.com/42zzzz/PhoneMike/releases/download/v1.2.2/PhoneMike.apk) | Install this on your phone |
 
 ---
 
