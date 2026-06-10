@@ -32,7 +32,7 @@ class TcpAudioServer {
     companion object {
         private const val TAG = "TcpAudioServer"
         const val PORT = 18501
-        private const val QUEUE_CAPACITY = 40
+        private const val QUEUE_CAPACITY = 8
         private const val HEADER_SIZE = 16
         private const val MAGIC = "PHMC"
         private const val FMT_PCM16: Short = 1
@@ -118,7 +118,7 @@ class TcpAudioServer {
         writeThread = Thread({
             try {
                 while (isRunning.get() && !socket.isClosed) {
-                    val chunk = queue.poll(50, TimeUnit.MILLISECONDS) ?: continue
+                    val chunk = queue.poll(10, TimeUnit.MILLISECONDS) ?: continue
                     out.write(chunk)
                 }
             } catch (e: IOException) {

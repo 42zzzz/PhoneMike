@@ -1,7 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod audio_thread;
-mod shared_mem;
+mod output;
 mod state;
 mod tcp;
 mod tray;
@@ -34,47 +34,44 @@ struct Args {
     #[arg(long, default_value_t = 4096)]
     buf_size: usize,
 
-    /// Output PCM to PhoneMike virtual speaker via WASAPI
-    #[arg(long, default_value_t = false)]
-    driver: bool,
+    /// Audio output device name (e.g. "CABLE Input"). Auto-detects if omitted.
+    #[arg(long)]
+    device: Option<String>,
+
+    /// List all available audio output devices and exit.
+    #[arg(long)]
+    list_devices: bool,
 }
 
 fn main() {
     let args = Args::parse();
+
+    if args.list_devices {
+        output::list_devices();
+        return;
+    }
 
     if args.headless {
         run_headless(args);
         return;
     }
 
-    // Single-instance guard: named mutex prevents multiple GUI instances.
-    // If already running, bring the existing window to front and exit.
+    // Single-instance guard: check if our window class already exists.
+    // If so, bring the existing window to front and exit.
     #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS;
-        use windows_sys::Win32::System::Threading::CreateMutexW;
-
-        let name: Vec<u16> = "PhoneMike_SingleInstance\0".encode_utf16().collect();
-        let hmutex = unsafe { CreateMutexW(std::ptr::null(), 1, name.as_ptr()) };
-        if hmutex == 0 || unsafe { windows_sys::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
-            // Another instance is running — find its window and show it
-            unsafe {
-                let class: Vec<u16> = "PhoneMikeWnd\0".encode_utf16().collect();
-                let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
-                    class.as_ptr(), std::ptr::null(),
-                );
-                if hwnd != 0 {
-                    windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
-                        hwnd,
-                        windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-                    );
-                    windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
-                }
-            }
+    unsafe {
+        let class: Vec<u16> = "PhoneMikeWnd\0".encode_utf16().collect();
+        let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+            class.as_ptr(), std::ptr::null(),
+        );
+        if hwnd != 0 {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                hwnd,
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            );
+            windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
             return;
         }
-        // Leak hmutex — held for process lifetime, released on exit by OS
-        std::mem::forget(hmutex);
     }
 
     run_gui();
@@ -86,7 +83,7 @@ fn run_gui() {
 
     let state_audio = Arc::clone(&state);
     std::thread::spawn(move || {
-        audio_thread::run_audio_thread(cmd_rx, state_audio);
+        audio_thread::run_audio_thread(cmd_rx, state_audio, None);
     });
 
     update::spawn_update_check(Arc::clone(&state));
@@ -108,7 +105,6 @@ fn run_headless(args: Args) {
 
     cmd_tx
         .send(Command::Start {
-            use_driver: args.driver,
             wav_path: args.output.clone(),
             gain: 1.0,
             noise_gate: 0.0,
@@ -125,5 +121,5 @@ fn run_headless(args: Args) {
         });
     }
 
-    audio_thread::run_audio_thread(cmd_rx, state);
+    audio_thread::run_audio_thread(cmd_rx, state, args.device.clone());
 }

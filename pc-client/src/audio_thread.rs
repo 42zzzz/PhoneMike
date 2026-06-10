@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
@@ -8,7 +9,7 @@ use audiopus::{Channels, SampleRate};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 
-use crate::shared_mem::SharedMemWriter;
+use crate::output;
 use crate::state::{
     AppStateHandle, AudioStats, Command, ConnectionStatus, GRAPH_HISTORY,
 };
@@ -18,13 +19,10 @@ use crate::wav::WavWriter;
 const HEADER_SIZE: usize = 16;
 const MAGIC: &[u8; 4] = b"PHMC";
 
-// PHMC format field: 1=PCM16, 2=Opus
 const FMT_OPUS: u16 = 2;
 
-// Noise gate: keep gate open this many ms after last above-threshold chunk.
 const GATE_HOLD_MS: u64 = 80;
 
-// Max Opus frame bytes (120ms @ 510kbps)
 const MAX_OPUS_FRAME_BYTES: usize = 7680;
 
 struct PcmHeader {
@@ -62,7 +60,6 @@ fn compute_rms(pcm_bytes: &[u8]) -> f32 {
     (sum / count as f64).sqrt() as f32 / i16::MAX as f32
 }
 
-/// Single-pole lowpass IIR filter for interleaved i16 LE PCM.
 struct LowpassFilter {
     alpha: f32,
     state: Vec<f32>,
@@ -117,7 +114,7 @@ fn log(state: &AppStateHandle, msg: impl Into<String>) {
     }
 }
 
-pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
+pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle, device_name: Option<String>) {
     #[cfg(target_os = "windows")]
     unsafe {
         use windows_sys::Win32::System::Threading::{
@@ -127,36 +124,34 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
     }
 
     loop {
-        // Wait for Start command
         let cmd = match cmd_rx.recv() {
             Ok(c) => c,
             Err(_) => return,
         };
 
-        let (use_driver, initial_wav_path, initial_gain, initial_gate, initial_lowpass) = match cmd {
-            Command::Start { use_driver, wav_path, gain, noise_gate, lowpass_hz } => {
-                (use_driver, wav_path, gain, noise_gate, lowpass_hz)
+        let (initial_wav_path, initial_gain, initial_gate, initial_lowpass) = match cmd {
+            Command::Start { wav_path, gain, noise_gate, lowpass_hz } => {
+                (wav_path, gain, noise_gate, lowpass_hz)
             }
             _ => continue,
         };
 
-        // Retry loop: reconnect automatically on disconnect or error
+        let dev_name = device_name.clone();
+
         loop {
             match stream_session(
                 &cmd_rx,
                 Arc::clone(&state),
-                use_driver,
+                dev_name.as_deref(),
                 initial_wav_path.clone(),
                 initial_gain,
                 initial_gate,
                 initial_lowpass,
             ) {
                 Ok(stopped) => {
-                    // stopped=true means user sent Stop; break to outer loop
                     if stopped {
                         break;
                     }
-                    // Phone disconnected — log and retry
                     log(&state, "[audio] Disconnected. Reconnecting...");
                 }
                 Err(e) => {
@@ -165,7 +160,6 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
                 }
             }
 
-            // Check if Stop arrived while we were about to retry
             match cmd_rx.try_recv() {
                 Ok(Command::Stop) => {
                     if let Ok(mut st) = state.lock() {
@@ -177,13 +171,11 @@ pub fn run_audio_thread(cmd_rx: Receiver<Command>, state: AppStateHandle) {
                 _ => {}
             }
 
-            // Brief pause before retrying
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
 }
 
-/// Read exactly `buf.len()` bytes from source.
 fn read_exact(source: &TcpTransport, buf: &mut [u8]) -> Result<()> {
     let mut got = 0;
     while got < buf.len() {
@@ -193,11 +185,10 @@ fn read_exact(source: &TcpTransport, buf: &mut [u8]) -> Result<()> {
     Ok(())
 }
 
-/// Returns Ok(true) if user stopped, Ok(false) if phone disconnected/error (caller should retry).
 fn stream_session(
     cmd_rx: &Receiver<Command>,
     state: AppStateHandle,
-    use_driver: bool,
+    device_name: Option<&str>,
     initial_wav_path: Option<String>,
     initial_gain: f32,
     initial_gate: f32,
@@ -209,7 +200,6 @@ fn stream_session(
         st.push_log("Connecting via ADB/TCP...".to_string());
     }
 
-    // ADB forward: best-effort, log error but don't abort (phone may not be connected yet)
     match TcpTransport::setup_forward(18501) {
         Ok(_) => log(&state, "[audio] ADB forward OK. Waiting for phone app..."),
         Err(e) => log(&state, format!("[audio] ADB forward failed ({e:#}). Will retry...")),
@@ -229,7 +219,6 @@ fn stream_session(
             _ => {}
         }
 
-        // Re-attempt ADB forward periodically (phone may have just connected)
         if attempt > 0 && attempt % 20 == 0 {
             if let Err(e) = TcpTransport::setup_forward(18501) {
                 log(&state, format!("[audio] ADB re-forward failed: {e:#}"));
@@ -276,10 +265,45 @@ fn stream_session(
             channels: header.channels,
         };
         st.stats = AudioStats::default();
-        st.stats.driver_active = use_driver;
     }
 
-    // Build Opus decoder if stream is Opus
+    // ── Audio output setup ──────────────────────────────────────────────
+    let output_device = match device_name {
+        Some(name) => {
+            log(&state, format!("[audio] Using specified device: {name}"));
+            name.to_string()
+        }
+        None => {
+            match output::find_virtual_cable() {
+                Some(name) => {
+                    log(&state, format!("[audio] Detected virtual cable: {name}"));
+                    name
+                }
+                None => {
+                    log(&state, "[audio] WARNING: No virtual audio cable found. Phone audio will not be heard on any device.");
+                    log(&state, "[audio] Install VB-Cable (free) from https://vb-audio.com/Cable/");
+                    log(&state, "[audio] Then restart PhoneMike. In your target app, select 'CABLE Output' as mic.");
+                    return Err(anyhow::anyhow!(
+                        "No virtual audio cable detected. Install VB-Cable (free) from vb-audio.com"
+                    ));
+                }
+            }
+        }
+    };
+
+    let audio_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let _stream = output::start_playback(
+        &output_device,
+        header.sample_rate,
+        header.channels,
+        Arc::clone(&audio_buffer),
+    ).map_err(|e| {
+        log(&state, format!("[audio] Failed to start audio output: {e}"));
+        e
+    })?;
+    log(&state, "[audio] Audio output started.");
+
+    // Build Opus decoder
     let opus_sr = match header.sample_rate {
         8000  => Some(SampleRate::Hz8000),
         12000 => Some(SampleRate::Hz12000),
@@ -321,16 +345,9 @@ fn stream_session(
         None => None,
     };
 
-    let shm: Option<SharedMemWriter> = if use_driver {
-        match SharedMemWriter::new(header.sample_rate, header.channels, 16) {
-            Ok(s) => { log(&state, "[audio] SHM opened."); Some(s) }
-            Err(e) => { log(&state, format!("[audio] SHM error: {e}")); None }
-        }
-    } else { None };
-
     let mut read_buf = vec![0u8; 4096];
     let mut proc_buf: Vec<u8> = Vec::with_capacity(4096);
-    let mut silence_buf: Vec<u8> = Vec::with_capacity(4096); // pre-alloc, reused for gated frames
+    let mut silence_buf: Vec<u8> = Vec::with_capacity(4096);
     let start = Instant::now();
     let mut total_bytes: u64 = 0;
     let mut last_stats = Instant::now();
@@ -382,7 +399,6 @@ fn stream_session(
         let raw_bytes_consumed: usize;
 
         if header.format == FMT_OPUS && opus_decoder.is_some() {
-            // Opus framing: [u16 LE frame_len][frame_len bytes]
             let mut len_buf = [0u8; 2];
             match source.read(&mut len_buf, 100) {
                 Ok(0) => continue,
@@ -411,14 +427,11 @@ fn stream_session(
             let pcm_slice = &opus_pcm_buf[..n_samples * header.channels as usize];
             let byte_len = pcm_slice.len() * 2;
             proc_buf.reserve(byte_len);
-            // SAFETY: i16 and u8 have no alignment/validity constraints that conflict;
-            // we reinterpret the i16 slice as its raw LE bytes in a single memcpy.
             let src_bytes = unsafe {
                 std::slice::from_raw_parts(pcm_slice.as_ptr() as *const u8, byte_len)
             };
             proc_buf.extend_from_slice(src_bytes);
         } else {
-            // Raw PCM
             let n = match source.read(&mut read_buf, 100) {
                 Ok(0) => continue,
                 Ok(n) => n,
@@ -432,7 +445,6 @@ fn stream_session(
         // ── DSP chain ───────────────────────────────────────────────────────
         let now = Instant::now();
 
-        // 1. Gain
         if (gain - 1.0).abs() > 0.001 {
             for chunk in proc_buf.chunks_exact_mut(2) {
                 let s = i16::from_le_bytes([chunk[0], chunk[1]]);
@@ -442,10 +454,8 @@ fn stream_session(
             }
         }
 
-        // 2. Lowpass
         lpf.process(&mut proc_buf);
 
-        // 3. RMS + noise gate
         let rms = compute_rms(&proc_buf);
         let gated_out = if gate_threshold > 0.0 {
             if rms >= gate_threshold {
@@ -471,20 +481,34 @@ fn stream_session(
 
         total_bytes += raw_bytes_consumed as u64;
 
-        if let Some(ref s) = shm { s.write(chunk); }
+        // Push PCM to audio output buffer
+        if chunk.len() >= 2 {
+            let samples = unsafe {
+                std::slice::from_raw_parts(
+                    chunk.as_ptr() as *const i16,
+                    chunk.len() / 2,
+                )
+            };
+            let mut buf = audio_buffer.lock().unwrap();
+            buf.extend(samples);
+            // Actively maintain buffer at ~20ms to keep latency low
+            let target = (header.sample_rate as usize * header.channels as usize) / 50;
+            let max = target * 2;
+            if buf.len() > max {
+                let excess = buf.len() - target;
+                buf.drain(0..excess);
+            }
+        }
+
         if let Some(ref mut w) = wav { let _ = w.append(chunk); }
 
-        // Stats update ~100ms
         if now.duration_since(last_stats).as_millis() >= 100 {
             last_stats = now;
-            let (wi, ri) = if let Some(ref s) = shm { s.indices() } else { (0, 0) };
             if let Ok(mut st) = state.lock() {
                 st.stats.bytes_received = total_bytes;
                 st.stats.elapsed_secs = start.elapsed().as_secs_f64();
                 st.stats.rms = rms;
                 st.stats.gate_active = gated_out;
-                st.stats.shm_write_idx = wi;
-                st.stats.shm_read_idx = ri;
                 if st.stats.rms_history.len() >= GRAPH_HISTORY {
                     st.stats.rms_history.pop_front();
                 }

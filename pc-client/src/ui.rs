@@ -224,7 +224,6 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         let _ = ws.cmd_tx.send(Command::Stop);
                     } else {
                         let _ = ws.cmd_tx.send(Command::Start {
-                            use_driver: true,
                             wav_path: None,
                             gain: 1.0,
                             noise_gate: 0.0,
@@ -264,7 +263,6 @@ unsafe fn send_start(hwnd: HWND) {
     let ws = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
     if ws.is_null() { return; }
     let _ = (*ws).cmd_tx.send(Command::Start {
-        use_driver: true,
         wav_path: None,
         gain: 1.0,
         noise_gate: 0.0,
