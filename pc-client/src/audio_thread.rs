@@ -45,19 +45,15 @@ fn parse_header(buf: &[u8]) -> Result<PcmHeader> {
     Ok(PcmHeader { sample_rate, channels, format })
 }
 
-fn compute_rms(pcm_bytes: &[u8]) -> f32 {
-    if pcm_bytes.len() < 2 {
+fn compute_rms(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
         return 0.0;
     }
-    let sum: f64 = pcm_bytes
-        .chunks_exact(2)
-        .map(|b| {
-            let s = i16::from_le_bytes([b[0], b[1]]) as f64;
-            s * s
-        })
+    let sum: f64 = samples
+        .iter()
+        .map(|&s| (s as f64) * (s as f64))
         .sum();
-    let count = pcm_bytes.len() / 2;
-    (sum / count as f64).sqrt() as f32 / i16::MAX as f32
+    (sum / samples.len() as f64).sqrt() as f32 / i16::MAX as f32
 }
 
 struct LowpassFilter {
@@ -90,18 +86,15 @@ impl LowpassFilter {
         (self.alpha - 1.0).abs() < 1e-6
     }
 
-    fn process(&mut self, buf: &mut [u8]) {
+    fn process(&mut self, buf: &mut [i16]) {
         if self.is_bypass() { return; }
         let ch = self.state.len();
-        for (frame_idx, chunk) in buf.chunks_exact_mut(2).enumerate() {
+        for (frame_idx, sample) in buf.iter_mut().enumerate() {
             let ch_idx = frame_idx % ch;
-            let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f32;
-            let y = self.state[ch_idx] + self.alpha * (sample - self.state[ch_idx]);
+            let s = *sample as f32;
+            let y = self.state[ch_idx] + self.alpha * (s - self.state[ch_idx]);
             self.state[ch_idx] = y;
-            let out = y.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-            let b = out.to_le_bytes();
-            chunk[0] = b[0];
-            chunk[1] = b[1];
+            *sample = y.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
         }
     }
 }
@@ -345,9 +338,9 @@ fn stream_session(
         None => None,
     };
 
-    let mut read_buf = vec![0u8; 4096];
-    let mut proc_buf: Vec<u8> = Vec::with_capacity(4096);
-    let mut silence_buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut read_buf = vec![0u8; 16384];
+    let mut proc_buf: Vec<i16> = Vec::with_capacity(8192);
+    let mut silence_buf: Vec<i16> = Vec::with_capacity(8192);
     let start = Instant::now();
     let mut total_bytes: u64 = 0;
     let mut last_stats = Instant::now();
@@ -400,11 +393,9 @@ fn stream_session(
 
         if header.format == FMT_OPUS && opus_decoder.is_some() {
             let mut len_buf = [0u8; 2];
-            match source.read(&mut len_buf, 100) {
-                Ok(0) => continue,
-                Ok(1) => { read_exact(&source, &mut len_buf[1..])?; }
-                Ok(_) => {}
-                Err(e) => { log(&state, format!("[audio] Read err: {e}")); break; }
+            if read_exact(&source, &mut len_buf).is_err() {
+                log(&state, "[audio] Failed to read Opus frame length");
+                break;
             }
 
             let frame_len = u16::from_le_bytes(len_buf) as usize;
@@ -425,12 +416,7 @@ fn stream_session(
 
             proc_buf.clear();
             let pcm_slice = &opus_pcm_buf[..n_samples * header.channels as usize];
-            let byte_len = pcm_slice.len() * 2;
-            proc_buf.reserve(byte_len);
-            let src_bytes = unsafe {
-                std::slice::from_raw_parts(pcm_slice.as_ptr() as *const u8, byte_len)
-            };
-            proc_buf.extend_from_slice(src_bytes);
+            proc_buf.extend_from_slice(pcm_slice);
         } else {
             let n = match source.read(&mut read_buf, 100) {
                 Ok(0) => continue,
@@ -439,18 +425,19 @@ fn stream_session(
             };
             raw_bytes_consumed = n;
             proc_buf.clear();
-            proc_buf.extend_from_slice(&read_buf[..n]);
+            let i16_count = n / 2;
+            let i16_slice = unsafe {
+                std::slice::from_raw_parts(read_buf.as_ptr() as *const i16, i16_count)
+            };
+            proc_buf.extend_from_slice(i16_slice);
         }
 
         // ── DSP chain ───────────────────────────────────────────────────────
         let now = Instant::now();
 
         if (gain - 1.0).abs() > 0.001 {
-            for chunk in proc_buf.chunks_exact_mut(2) {
-                let s = i16::from_le_bytes([chunk[0], chunk[1]]);
-                let amp = (s as f32 * gain).clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-                let b = amp.to_le_bytes();
-                chunk[0] = b[0]; chunk[1] = b[1];
+            for s in proc_buf.iter_mut() {
+                *s = ((*s as f32 * gain).clamp(i16::MIN as f32, i16::MAX as f32)) as i16;
             }
         }
 
@@ -470,9 +457,9 @@ fn stream_session(
             false
         };
 
-        let chunk: &[u8] = if gated_out {
+        let chunk: &[i16] = if gated_out {
             if silence_buf.len() < proc_buf.len() {
-                silence_buf.resize(proc_buf.len(), 0u8);
+                silence_buf.resize(proc_buf.len(), 0i16);
             }
             &silence_buf[..proc_buf.len()]
         } else {
@@ -482,25 +469,24 @@ fn stream_session(
         total_bytes += raw_bytes_consumed as u64;
 
         // Push PCM to audio output buffer
-        if chunk.len() >= 2 {
-            let samples = unsafe {
-                std::slice::from_raw_parts(
-                    chunk.as_ptr() as *const i16,
-                    chunk.len() / 2,
-                )
-            };
+        if !chunk.is_empty() {
             let mut buf = audio_buffer.lock().unwrap();
-            buf.extend(samples);
-            // Actively maintain buffer at ~20ms to keep latency low
-            let target = (header.sample_rate as usize * header.channels as usize) / 50;
+            buf.extend(chunk);
+            // Maintain buffer at ~40ms to absorb CPU load spikes without adding latency
+            let target = (header.sample_rate as usize * header.channels as usize) / 25;
             let max = target * 2;
-            if buf.len() > max {
-                let excess = buf.len() - target;
-                buf.drain(0..excess);
+            let current_len = buf.len();
+            if current_len > max {
+                buf.drain(0..current_len - target);
             }
         }
 
-        if let Some(ref mut w) = wav { let _ = w.append(chunk); }
+        if let Some(ref mut w) = wav {
+            let byte_slice = unsafe {
+                std::slice::from_raw_parts(chunk.as_ptr() as *const u8, chunk.len() * 2)
+            };
+            let _ = w.append(byte_slice);
+        }
 
         if now.duration_since(last_stats).as_millis() >= 100 {
             last_stats = now;

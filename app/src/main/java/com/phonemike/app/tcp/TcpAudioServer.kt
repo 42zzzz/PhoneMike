@@ -10,6 +10,7 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -49,9 +50,10 @@ class TcpAudioServer {
     // Opus encoder — created fresh per-server-start
     private var opusEncoder: OpusEncoder? = null
 
-    // PCM accumulation buffer for framing into 20ms Opus frames
-    private val pcmAccum = ByteArray(OpusEncoder.OPUS_FRAME_BYTES * 4)
-    private var pcmAccumLen = 0
+    // Raw PCM queue: capture thread → processing thread (Opus encode offload)
+    private val rawPcmQueue = LinkedBlockingQueue<ByteArray>()
+    private var processingThread: Thread? = null
+    private val sessionReset = java.util.concurrent.atomic.AtomicBoolean(false)
 
     var onClientConnected: (() -> Unit)? = null
     var onClientDisconnected: (() -> Unit)? = null
@@ -60,7 +62,7 @@ class TcpAudioServer {
         if (isRunning.getAndSet(true)) return
 
         queue.clear()
-        pcmAccumLen = 0
+        rawPcmQueue.clear()
 
         // Try to create Opus encoder
         opusEncoder = if (OpusEncoder.isAvailable) {
@@ -92,13 +94,16 @@ class TcpAudioServer {
                 }
             }
         }, "TcpAudioServer-Accept").also { it.start() }
+
+        startProcessingThread()
     }
 
     private fun handleClient(socket: Socket) {
         closeClient()
         clientSocket = socket
         queue.clear()
-        pcmAccumLen = 0
+        rawPcmQueue.clear()
+        sessionReset.set(true)
 
         val out: OutputStream
         try {
@@ -132,39 +137,59 @@ class TcpAudioServer {
 
     /**
      * Called from audio capture thread with raw PCM i16 LE bytes.
-     * Encodes to Opus (if available) or passes PCM directly to queue.
+     * Lightweight: just copies data to the processing queue.
+     * Opus encoding (if enabled) happens on a dedicated processing thread.
      */
     fun enqueue(buffer: ByteArray, bytesRead: Int) {
         if (clientSocket == null || clientSocket?.isClosed == true) return
+        val chunk = buffer.copyOf(bytesRead)
+        rawPcmQueue.offer(chunk)
+    }
 
-        val enc = opusEncoder
-        if (enc == null || !enc.enabled) {
-            // Raw PCM path
-            val chunk = buffer.copyOf(bytesRead)
-            offerToQueue(chunk)
-            return
-        }
+    private fun startProcessingThread() {
+        processingThread = Thread({
+            // Per-session accumulation state (local to this thread, no locking needed)
+            val pcmAccum = ByteArray(OpusEncoder.OPUS_FRAME_BYTES * 4)
+            var pcmAccumLen = 0
 
-        // Opus path: accumulate PCM until we have a full 20ms frame, then encode
-        var srcOffset = 0
-        while (srcOffset < bytesRead) {
-            val remaining = bytesRead - srcOffset
-            val space = OpusEncoder.OPUS_FRAME_BYTES - pcmAccumLen
-            val toCopy = minOf(remaining, space)
+            while (isRunning.get()) {
+                val buffer = rawPcmQueue.poll(100, TimeUnit.MILLISECONDS) ?: continue
 
-            System.arraycopy(buffer, srcOffset, pcmAccum, pcmAccumLen, toCopy)
-            pcmAccumLen += toCopy
-            srcOffset += toCopy
-
-            if (pcmAccumLen >= OpusEncoder.OPUS_FRAME_BYTES) {
-                val frame = pcmAccum.copyOf(OpusEncoder.OPUS_FRAME_BYTES)
-                val packet = enc.encodeFrame(frame)
-                if (packet != null) {
-                    offerToQueue(packet)
+                // Reset accumulation state on new client session
+                if (sessionReset.getAndSet(false)) {
+                    pcmAccumLen = 0
                 }
-                pcmAccumLen = 0
+
+                val enc = opusEncoder
+                if (enc == null || !enc.enabled) {
+                    // Raw PCM path: forward directly to TCP write queue
+                    offerToQueue(buffer)
+                    continue
+                }
+
+                // Opus path: accumulate PCM until we have a full 20ms frame, then encode
+                var srcOffset = 0
+                val bytesRead = buffer.size
+                while (srcOffset < bytesRead) {
+                    val remaining = bytesRead - srcOffset
+                    val space = OpusEncoder.OPUS_FRAME_BYTES - pcmAccumLen
+                    val toCopy = minOf(remaining, space)
+
+                    System.arraycopy(buffer, srcOffset, pcmAccum, pcmAccumLen, toCopy)
+                    pcmAccumLen += toCopy
+                    srcOffset += toCopy
+
+                    if (pcmAccumLen >= OpusEncoder.OPUS_FRAME_BYTES) {
+                        val frame = pcmAccum.copyOf(OpusEncoder.OPUS_FRAME_BYTES)
+                        val packet = enc.encodeFrame(frame)
+                        if (packet != null) {
+                            offerToQueue(packet)
+                        }
+                        pcmAccumLen = 0
+                    }
+                }
             }
-        }
+        }, "TcpAudioServer-Process").also { it.start() }
     }
 
     private fun offerToQueue(chunk: ByteArray) {
@@ -181,6 +206,9 @@ class TcpAudioServer {
         serverSocket = null
         acceptThread?.join(1000)
         acceptThread = null
+        processingThread?.join(1000)
+        processingThread = null
+        rawPcmQueue.clear()
         queue.clear()
         opusEncoder?.release()
         opusEncoder = null

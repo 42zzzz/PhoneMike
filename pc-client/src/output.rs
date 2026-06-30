@@ -121,9 +121,12 @@ fn try_build(
         cpal::SampleFormat::F32 => device.build_output_stream::<f32, _, _>(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut src = buf.lock().unwrap();
+                let mut guard = match buf.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => { data.fill(0.0); return; }
+                };
                 for frame in data.chunks_exact_mut(out_channels) {
-                    let s = src.pop_front().unwrap_or(0) as f32 / i16::MAX as f32;
+                    let s = guard.pop_front().unwrap_or(0) as f32 / i16::MAX as f32;
                     for ch in frame.iter_mut() { *ch = s; }
                 }
             },
@@ -133,9 +136,12 @@ fn try_build(
         cpal::SampleFormat::I16 => device.build_output_stream::<i16, _, _>(
             config,
             move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                let mut src = buf.lock().unwrap();
+                let mut guard = match buf.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => { data.fill(0); return; }
+                };
                 for frame in data.chunks_exact_mut(out_channels) {
-                    let s = src.pop_front().unwrap_or(0);
+                    let s = guard.pop_front().unwrap_or(0);
                     for ch in frame.iter_mut() { *ch = s; }
                 }
             },
@@ -145,9 +151,12 @@ fn try_build(
         cpal::SampleFormat::U16 => device.build_output_stream::<u16, _, _>(
             config,
             move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                let mut src = buf.lock().unwrap();
+                let mut guard = match buf.try_lock() {
+                    Ok(g) => g,
+                    Err(_) => { data.fill(32768); return; }
+                };
                 for frame in data.chunks_exact_mut(out_channels) {
-                    let s = src.pop_front().unwrap_or(0) as i32 + 32768;
+                    let s = guard.pop_front().unwrap_or(0) as i32 + 32768;
                     for ch in frame.iter_mut() { *ch = s as u16; }
                 }
             },
