@@ -2,7 +2,7 @@
 ; Installs PC client only (driver replaced with VB-Cable relay)
 
 #define MyAppName "PhoneMike"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "42zzzz"
 #define MyAppURL "https://github.com/42zzzz/PhoneMike"
 #define MyAppExeName "PhoneMike.exe"
